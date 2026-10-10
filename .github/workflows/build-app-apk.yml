@@ -1,0 +1,56 @@
+name: Build App APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Create Expo project and add the app code
+        run: |
+          npx --yes create-expo-app@latest build --template blank --no-install
+          cd build
+          npm install
+          npx expo install expo-secure-store expo-file-system expo-sharing react-native-webview @react-native-async-storage/async-storage
+          rm -f App.js
+          cp ../App.js .
+
+      - name: Set app name and Android package
+        run: |
+          cd build
+          node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('app.json','utf8'));j.expo.name='AI Builder';j.expo.android=Object.assign({},j.expo.android,{package:'com.aibuilder.mobile'});fs.writeFileSync('app.json',JSON.stringify(j,null,2))"
+
+      - name: Generate Android project
+        run: |
+          cd build
+          npx expo prebuild --platform android --no-install
+
+      - name: Build release APK
+        run: |
+          cd build/android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Publish APK as release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp build/android/app/build/outputs/apk/release/app-release.apk app.apk
+          gh release create "app-${{ github.run_number }}" app.apk \
+            --title "AI Builder ${{ github.run_number }}" \
+            --notes "APK of the AI Builder app"
